@@ -1,9 +1,5 @@
 #include "mbed.h"
-#define u8 unsigned char
-#define u16 unsigned int
-#define ubyte unsigned char
-#define ushort unsigned short int
-#define bit unsigned char
+
 typedef struct {
     unsigned int pos; // raw reading from sensor 14 bits
     long oticks;  // revolution counter
@@ -20,11 +16,11 @@ public:
     ~enc();
     unsigned int  ams_read();
     void update_pos();
-    void set_offset(ushort zpos);
+    void set_offset(uint16_t zpos);
     unsigned int cal_state(); //Calibrated stat
-    static ushort par(ushort value);
-    ushort write_spi(ushort reg, u8 rw);
-    ushort read_spi(ushort reg);
+    static uint16_t par(uint16_t value);
+    uint16_t write_spi(uint16_t reg, uint8_t rw);
+    uint16_t read_spi(uint16_t reg);
     EncObj enc_pos;
     
 private:

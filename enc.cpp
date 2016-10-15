@@ -26,8 +26,8 @@ unsigned int enc::cal_state(){
     return enc_pos.pos;
 }
 
-void enc::set_offset(ushort zpos){
-    ushort zhold;
+void enc::set_offset(uint16_t zpos){
+    uint16_t zhold;
     zhold = zpos >> 6; //8MSB of zero position
     write_spi(0x0016, 0);
     write_spi(zhold, 0);
@@ -37,27 +37,19 @@ void enc::set_offset(ushort zpos){
     write_spi(zhold, 0);   
 }
 
-ushort enc::write_spi(ushort reg, u8 rw){
-    ushort data;
-    reg = reg | rw << 14;
-    reg = reg | par(reg);
-    char d1 = reg >> 8;
-    char d2 = reg & 0x00FF;
+uint16_t enc::write_spi(uint16_t reg, uint8_t rw){
+    uint16_t data;
+    reg |= rw << 14;
+    reg |= par(reg);
     csl=0;
-    d1 = m_spi.write(d1);
-    d2 = m_spi.write(d2);
-    
+    data = m_spi.write(reg>>8) << 8;
+    data |= m_spi.write(reg);
     csl=1;
-    wait(0.0001);
-    data = (d1 << 8) | (d2 & 0xFF);
     return data;
-    
 }
 
-ushort enc::read_spi(ushort reg){
-    ushort data;
-    reg = reg | 1 << 14;
-    reg = reg | par(reg);
+uint16_t enc::read_spi(uint16_t reg) {
+    uint16_t data;
     write_spi(reg, 1);
     data = write_spi(0x0000, 1);
     return data;  
@@ -76,21 +68,16 @@ ushort enc::read_spi(ushort reg){
 *
 *****************************************************************************
 */
-ushort enc::par(ushort value)
-{
-    u8 cnt = 0;
-    u8 i;
- 
-    for (i = 0; i < 16; i++)
-    {
-        if (value & 0x1)
-        {
-            cnt++;
-        }
-        value >>= 1;
-    }
-    cnt = cnt & 0x1;
-    return cnt << 15;
+
+
+
+uint16_t enc::par(uint16_t value) {
+    value ^= value>>8;
+    value ^= value>>4;
+    value ^= value>>2;
+    value ^= value>>1;
+    value &= 1;
+    return value << 15;
 }
 
 void enc::update_pos(){
@@ -100,8 +87,9 @@ void enc::update_pos(){
 unsigned int enc::ams_read() {
     unsigned int enc_data;
 
-    enc_data = read_spi(0x3FFE);
-    read_spi(0x0001);
+    write_spi(0x3FFE, 1);
+    enc_data = write_spi(0x0001, 1);
+    write_spi(0x0000, 1);
         
     return enc_data & 0x3FFF;
 }

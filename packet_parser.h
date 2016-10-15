@@ -3,7 +3,6 @@
 
 #include "mbed.h"
 
-//#include "MODDMA.h"
 #include "MODSERIAL.h"
 #include "rtos.h"
 #include "lib_crc.h"

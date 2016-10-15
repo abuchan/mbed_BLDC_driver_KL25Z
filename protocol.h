@@ -2,6 +2,9 @@
 #define PROTOCOL_H
 
 #include <stdint.h>
+
+#define PKT_START_CHAR 0xAA
+
 /**
  * Packet type characters.
  */
@@ -36,7 +39,7 @@ typedef union packet_union_t {
 
 typedef struct command_data_t {
   int32_t position_setpoint;
-  uint16_t current_setpoint;
+  uint32_t current_setpoint;
 } command_data_t;
 
 typedef struct sensor_data_t {
