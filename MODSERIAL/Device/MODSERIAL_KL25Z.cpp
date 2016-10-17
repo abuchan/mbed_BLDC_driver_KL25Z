@@ -10,7 +10,9 @@ switch( _serial.index ) {
     }
 }
 
-void MODSERIAL::initDevice(void) {};
+void MODSERIAL::initDevice(void) {
+  Serial::format(8,SerialBase::None,2);
+};
 
 bool MODSERIAL::txIsBusy( void ) 
 { 

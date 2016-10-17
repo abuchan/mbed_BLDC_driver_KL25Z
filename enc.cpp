@@ -88,8 +88,10 @@ unsigned int enc::ams_read() {
     unsigned int enc_data;
 
     write_spi(0x3FFE, 1);
-    enc_data = write_spi(0x0001, 1);
-    write_spi(0x0000, 1);
+    enc_data = write_spi(0x0000, 1);
+
+    //enc_data = write_spi(0x0001, 1);
+    //write_spi(0x0000, 1);
         
     return enc_data & 0x3FFF;
 }

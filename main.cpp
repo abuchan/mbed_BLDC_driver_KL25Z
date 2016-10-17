@@ -8,7 +8,8 @@
 #define LED2 PTC3
 #define LED3 PTA18
 
-#define SERIAL_BAUDRATE 230400
+//#define SERIAL_BAUDRATE 230400
+#define SERIAL_BAUDRATE 921600
 #define UART_TX PTD7
 #define UART_RX PTD6
 
@@ -99,8 +100,8 @@ int main() {
 //  RTI.attach(&get_state, 0.01f);
 
   system_timer.start();
-  sense_control_ticker.start(2);
-  uint32_t last_time = system_timer.read_ms();
+  sense_control_ticker.start(1);
+  uint32_t last_time = system_timer.read_us();
   uint32_t current_time = last_time;
   
   PacketParser parser(SERIAL_BAUDRATE, UART_TX, UART_RX, LED2, LED3);
@@ -116,19 +117,19 @@ int main() {
         // If got a command packet, store command and respond with sensor packet.
         case PKT_TYPE_COMMAND:
           memcpy(&last_command_data,recv_pkt->packet.data_crc,sizeof(command_data_t));
-          if (sensor_pkt != NULL) {
+          /*if (sensor_pkt != NULL) {
             get_last_sensor_data(&(sensor_pkt->packet),0);
             parser.send_blocking(sensor_pkt);
             sensor_pkt = parser.get_send_packet();
-          }
+          }*/
           break;
       }
       parser.free_received_packet(recv_pkt);
     }
 
     // Send sensor packet periodically
-    current_time = system_timer.read_ms();
-    if (current_time - last_time > 10) {
+    current_time = system_timer.read_us();
+    if (current_time - last_time > 1000) {
       last_time = current_time;
       if (sensor_pkt != NULL) {
         get_last_sensor_data(&(sensor_pkt->packet),0);

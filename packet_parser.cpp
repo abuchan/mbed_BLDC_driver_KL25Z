@@ -70,7 +70,7 @@ void PacketParser::send_blocking(packet_union_t* out_pkt) {
   uint8_t crc_value = calculate_crc8(out_pkt->raw, out_pkt->packet.header.length-1);
   out_pkt->raw[out_pkt->packet.header.length-1] = crc_value;
   for (int i = 0; i < out_pkt->packet.header.length; i++) {
-    pc_.putc(out_pkt->raw[i]);
+    pc_.putcnb(out_pkt->raw[i]);
   }
   out_box_.free(out_pkt);
   tx_led_ = 1;

@@ -92,6 +92,9 @@ int MODSERIAL::rxDiscardLastChar( void )
     return (int)c;
 }
 
+int MODSERIAL::putcnb(int c) {
+  return __putc(c,false);
+}
 
 bool MODSERIAL::claim (FILE *stream) {
     if ( FileBase::getName() == NULL) {

@@ -768,6 +768,8 @@ public:
     int putc(int c);
     #endif
     
+    int putcnb(int c);
+
     #if 0 // Inhereted from Serial/Stream, for documentation only
     /**
      * Function: printf
