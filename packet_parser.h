@@ -52,30 +52,33 @@ class PacketParser {
     packet_union_t* get_send_packet(void);
 
     /**
-     * Send the packet returned by get_send_packet.
+     * Send the packet returned by get_send_packet via outgoing queue.
      *
      * @param packet - pointer to packet to be sent.
      */
     void send_packet(packet_union_t* packet);
 
+    /**
+     * Blocking send the packet returned by get_send_packet.
+     *
+     * @param packet - pointer to packet to be sent.
+     */
     void send_blocking(packet_union_t* out_pkt);
+
+    /**
+     * Function to process outgoing queue; call in main loop.
+     */
+    void send_worker(void);
 
   private:
 
     MODSERIAL pc_;
-    //MODDMA dma_;
     
     DigitalOut tx_led_;
     uint32_t tx_sequence_;
 
     Mail<packet_union_t, PACKET_BUFFER_LENGTH> out_box_;
     packet_union_t* out_pkt_;
-    
-    static void thread_starter(void const *p);
-    Thread send_thread_;
-    
-    void send_worker(void);
-    void send_complete(MODSERIAL_IRQ_INFO *q);
 
     DigitalOut rx_led_;
     Mail<packet_union_t, PACKET_BUFFER_LENGTH> in_box_;

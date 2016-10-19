@@ -1,56 +1,55 @@
 #include "mbed.h"
 #include "rtos.h"
-#include "enc.h"
+#include "encoder.h"
 #include "protocol.h"
 #include "packet_parser.h"
 
-#define LED1 PTC2
-#define LED2 PTC3
-#define LED3 PTA18
+// Logical to physical pin definitions (change these when changing boards)
+#define LED_1_PIN     PTC2
+#define LED_2_PIN     PTC3
+#define LED_3_PIN     PTA18
 
-//#define SERIAL_BAUDRATE 230400
-#define SERIAL_BAUDRATE 921600
-#define UART_TX PTD7
-#define UART_RX PTD6
+#define UART_TX_PIN   PTD7
+#define UART_RX_PIN   PTD6
 
-//Ticker RTI;
-//Serial imProc(UART_TX,UART_RX);
-DigitalOut led_1(LED1);
-//DigitalOut led_2(LED2);
-//DigitalOut led_3(LED3);
-enc motPos(PTC6,PTC7,PTC5,PTC4);
-PwmOut EN(PTA4);
-DigitalOut DR(PTA2);
-DigitalOut BRAKE(PTA1);
-AnalogIn motCurrent(PTB0);
-AnalogIn temp(PTE30);
-AnalogIn voltage(PTD5);
+#define SPI_MOSI_PIN  PTC6
+#define SPI_MISO_PIN  PTC7
+#define SPI_SCK_PIN   PTC5
+#define SPI_CS_PIN    PTC4
 
-void get_state(void){
-  motPos.update_pos();
-}
+#define ENABLE_PIN    PTA4
+#define DIRECTION_PIN PTA2
+#define BRAKE_PIN     PTA1
 
-void fill_sensor_packet(packet_t* pkt, uint8_t flags, uint32_t time, int32_t position,
-  int32_t velocity, uint16_t current, uint16_t voltage, uint16_t temperature,
-  uint16_t uc_temp) {
-  pkt->header.type = PKT_TYPE_SENSOR;
-  pkt->header.length = sizeof(header_t) + sizeof(sensor_data_t) + 1;
-  pkt->header.flags = flags;
-  sensor_data_t* sensor_data = (sensor_data_t*)pkt->data_crc;
-  sensor_data->time = time;
-  sensor_data->position = position;
-  sensor_data->velocity = velocity;
-  sensor_data->current = current;
-  sensor_data->voltage = voltage;
-  sensor_data->temperature = temperature;
-  sensor_data->uc_temp = uc_temp;
-}
+#define CURRENT_PIN     PTB0
+#define TEMPERATURE_PIN PTE30
+#define VOLTAGE_PIN     PTD5
+
+// Global object/variable instantiations (these should not change)
+DigitalOut led_1(LED_1_PIN);
+Encoder encoder(SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCK_PIN, SPI_CS_PIN);
+
+PwmOut enable(ENABLE_PIN);
+DigitalOut direction(DIRECTION_PIN);
+DigitalOut brake(BRAKE_PIN);
+
+AnalogIn current_sense(CURRENT_PIN);
+AnalogIn temperature_sense(TEMPERATURE_PIN);
+AnalogIn voltage_sense(VOLTAGE_PIN);
 
 Timer system_timer;
-
 sensor_data_t last_sensor_data;
 command_data_t last_command_data;
 
+// This was the best compromise speed since mbed is 41.94MHz and ImageProc is
+// 40MHz
+#define SERIAL_BAUDRATE 873813
+
+// Converts ticks/us to rad/s in 16.16 fixed point. Divide resulting number by
+// 2^16 for final result
+#define TICK_US_TO_RAD_S_FIXP 78640346
+
+// Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
   pkt->header.type = PKT_TYPE_SENSOR;
   pkt->header.length = sizeof(header_t) + sizeof(sensor_data_t) + 1;
@@ -65,77 +64,83 @@ void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
   sensor_data->uc_temp = last_sensor_data.uc_temp;
 }
 
-
-// Converts ticks/us to rad/s in 16.16 fixed point. Divide resulting number by
-// 2^16 for final result
-#define TICK_US_TO_RAD_S_FIXP 78640346
-
-// Sense and control function to be run periodcially
-void sense_control(void const *n) {
-  led_1 = !(led_1.read());
-
-  uint32_t last_time = last_sensor_data.time;  // 3us
-  int32_t last_position = last_sensor_data.position;
+// Sense and control function to be run at 1kHz
+void sense_control_thread(void const *arg) {
+  uint32_t last_time = last_sensor_data.time;
+  int32_t last_position = last_sensor_data.position; // 3us
   last_sensor_data.time = system_timer.read_us(); // 19.6us
-  last_sensor_data.position = motPos.ams_read(); // 393us
+  encoder.update_state();
+  last_sensor_data.position = encoder.get_cal_state(); // 393us
   last_sensor_data.velocity = (
         TICK_US_TO_RAD_S_FIXP*(last_sensor_data.position - last_position)) /
             (last_sensor_data.time-last_time); // 8.1us
-  last_sensor_data.current = motCurrent.read_u16(); //85.6us
-  last_sensor_data.temperature = temp.read_u16(); // 85.6us
+  last_sensor_data.current = current_sense.read_u16(); //85.6us
+  last_sensor_data.temperature = temperature_sense.read_u16(); // 85.6us
   last_sensor_data.uc_temp = 0x1234;
 
-  led_1 = !(led_1.read());
+  // TODO: Calculate and apply control
+
+  // This puts the packet in the outgoing queue if there is space
+  PacketParser* parser = (PacketParser*)(arg);
+  packet_union_t* sensor_pkt = parser->get_send_packet();
+  if (sensor_pkt != NULL) {
+    get_last_sensor_data(&(sensor_pkt->packet),0);
+    parser->send_packet(sensor_pkt);
+  }
 }
 
-RtosTimer sense_control_ticker(&sense_control,osTimerPeriodic);
-
 int main() {  
-  EN.period_us(50);
-  EN.write(0.9f);
-  DR.write(0);
-  BRAKE.write(1);
-  motPos.set_offset(2160);
-  led_1 = 1;
-//  RTI.attach(&get_state, 0.01f);
+  enable.period_us(50);
+  enable.write(0.9f);
+  direction.write(0);
+  brake.write(1);
 
+  encoder.set_offset(2160);
+
+  led_1 = 1;
+
+  // Start the microsecond time
   system_timer.start();
+
+  // Instantiate packet parser
+  PacketParser parser(
+      SERIAL_BAUDRATE, UART_TX_PIN, UART_RX_PIN, LED_2_PIN, LED_3_PIN);
+
+  // Run the sense/control thread at 1kHz
+  RtosTimer sense_control_ticker(
+      &sense_control_thread, osTimerPeriodic, (void*)(&parser));
+
   sense_control_ticker.start(1);
-  uint32_t last_time = system_timer.read_us();
-  uint32_t current_time = last_time;
   
-  PacketParser parser(SERIAL_BAUDRATE, UART_TX, UART_RX, LED2, LED3);
+  // Pointer to received packet
   packet_union_t* recv_pkt = NULL;
-  packet_union_t* sensor_pkt = parser.get_send_packet();
 
   while(1) {
+
+    // See if there is a received packet
     recv_pkt = parser.get_received_packet();
 
     if (recv_pkt != NULL) {
+
       led_1 = !(led_1.read());
+
       switch (recv_pkt->packet.header.type) {
-        // If got a command packet, store command and respond with sensor packet.
+
+        // If got a command packet, store command value
         case PKT_TYPE_COMMAND:
-          memcpy(&last_command_data,recv_pkt->packet.data_crc,sizeof(command_data_t));
-          /*if (sensor_pkt != NULL) {
-            get_last_sensor_data(&(sensor_pkt->packet),0);
-            parser.send_blocking(sensor_pkt);
-            sensor_pkt = parser.get_send_packet();
-          }*/
+          memcpy(&last_command_data,recv_pkt->packet.data_crc,
+              sizeof(command_data_t));
+          // TODO: state machine for control modes
+          break;
+
+        default:
+          // TODO: do something if we got an unrecognized packet type?
           break;
       }
       parser.free_received_packet(recv_pkt);
     }
 
-    // Send sensor packet periodically
-    current_time = system_timer.read_us();
-    if (current_time - last_time > 1000) {
-      last_time = current_time;
-      if (sensor_pkt != NULL) {
-        get_last_sensor_data(&(sensor_pkt->packet),0);
-        parser.send_blocking(sensor_pkt);
-        sensor_pkt = parser.get_send_packet();
-      }
-    }
+    // This will process any outgoing packets
+    parser.send_worker();
   }
 }

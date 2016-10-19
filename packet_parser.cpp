@@ -41,25 +41,20 @@ void PacketParser::send_packet(packet_union_t* packet) {
 }
 
 void PacketParser::send_worker(void) {
-  while(true) {
-    osEvent evt = out_box_.get();
-    if (evt.status == osEventMail) {
-      tx_led_ = 0;
-      out_pkt_ = (packet_union_t*)evt.value.p;
-      out_pkt_->packet.header.start = PKT_START_CHAR;
-      out_pkt_->packet.header.sequence = tx_sequence_++;
-      uint8_t crc_value = calculate_crc8(out_pkt_->raw, out_pkt_->packet.header.length-1);
-      out_pkt_->raw[out_pkt_->packet.header.length-1] = crc_value;
-      for (int i = 0; i < out_pkt_->packet.header.length; i++) {
-        pc_.putc(out_pkt_->raw[i]);
-      }
-      tx_led_ = 1;
-      tx_led_ = 0;
-      out_box_.free(out_pkt_);
-      out_pkt_ = NULL;
-      tx_led_ = 1;
+  osEvent evt = out_box_.get();
+  if (evt.status == osEventMail) {
+    tx_led_ = 0;
+    out_pkt_ = (packet_union_t*)evt.value.p;
+    out_pkt_->packet.header.start = PKT_START_CHAR;
+    out_pkt_->packet.header.sequence = tx_sequence_++;
+    uint8_t crc_value = calculate_crc8(out_pkt_->raw, out_pkt_->packet.header.length-1);
+    out_pkt_->raw[out_pkt_->packet.header.length-1] = crc_value;
+    for (int i = 0; i < out_pkt_->packet.header.length; i++) {
+      pc_.putcnb(out_pkt_->raw[i]);
     }
-    Thread::yield();
+    out_box_.free(out_pkt_);
+    out_pkt_ = NULL;
+    tx_led_ = 1;
   }
 }
 
@@ -73,15 +68,6 @@ void PacketParser::send_blocking(packet_union_t* out_pkt) {
     pc_.putcnb(out_pkt->raw[i]);
   }
   out_box_.free(out_pkt);
-  tx_led_ = 1;
-}
-
-void PacketParser::send_complete(MODSERIAL_IRQ_INFO *q) {
-  tx_led_ = 0;
-  if (out_pkt_ != NULL) {
-    out_box_.free(out_pkt_);
-    out_pkt_ = NULL;
-  }
   tx_led_ = 1;
 }
 
