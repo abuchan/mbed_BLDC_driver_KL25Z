@@ -8,7 +8,8 @@ Encoder::Encoder(PinName mosi, PinName miso, PinName sck, PinName cs) :
   m_spi_.frequency(1000000);
   wait(0.01);
 
-  set_offset(2134); // est. 9/13/2016
+  //set_offset(2134); // est. 9/13/2016
+	set_offset(9906); // Calibrated offset for jumper = 8086+1820
   csl_=1;
 
   write_spi(0x0019, 0); //SETTINGS2
