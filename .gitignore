@@ -4,3 +4,17 @@
 .settings/
 *.swp
 
+/build/
+/CRC.lib
+/GettingStarted.html
+/JLinkLog.txt
+/JLinkSettings.ini
+/buildmbed_BLDC_driver_KL25Z.map
+/buildstartup_mkl25z4.lst
+/buildsvc_table.lst
+/MODSERIAL.lib
+/mbed-dev.lib
+/mbed-rtos.lib
+/mbed_BLDC_driver_KL25Z.uvguix.yim
+/mbed_BLDC_driver_KL25Z.uvoptx
+/mbed_BLDC_driver_KL25Z.uvprojx
