@@ -59,6 +59,7 @@ command_data_t last_command_data;
 int32_t revolutions = 0;
 int32_t integrator = 0;
 int32_t velocity_filtered = 0;
+int32_t current_position = 0;
 
 uint8_t control_mode = 0;
 
@@ -95,12 +96,12 @@ void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
 // Sense and control function to be run at 1kHz
 void sense_control_thread(void const *arg) {
   uint32_t last_time = last_sensor_data.time;
-  int32_t last_position = last_sensor_data.position; // 3us
+  int32_t last_position = current_position; // 3us
   last_sensor_data.time = system_timer.read_us(); // 19.6us
   encoder.update_state();
 
   dt = last_sensor_data.time - last_time; // timing
-  int32_t current_position = encoder.get_cal_state();
+  current_position = encoder.get_cal_state();
   /*
   last_sensor_data.position = encoder.get_cal_state(); // 393us
   last_sensor_data.velocity = (
