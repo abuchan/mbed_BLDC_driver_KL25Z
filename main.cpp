@@ -59,7 +59,6 @@ command_data_t last_command_data;
 int32_t revolutions = 0;
 int32_t integrator = 0;
 int32_t velocity_filtered = 0;
-int32_t last_position_absolute = 0;
 
 uint8_t control_mode = 0;
 
@@ -67,8 +66,12 @@ int32_t position_absolute;
 int32_t velocity_unfiltered;
 uint32_t dt;
 
-// 16.16 fixed point: divide by 2^16 for scaled value
+#define COMMAND_LIMIT 0.5 // maximum duty cycle: [0,1] (1 is full on)
 #define V_TAU 20000 // velocity LP time constant in us
+
+// 16.16 fixed point: divide by 2^16 for scaled value
+#define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
+#define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
 #define KP 3*(1<<16)/10 // fraction of command per rad
 #define KI 1*(1<<16)/100 // fraction of command per rad*s
@@ -95,6 +98,10 @@ void sense_control_thread(void const *arg) {
   int32_t last_position = last_sensor_data.position; // 3us
   last_sensor_data.time = system_timer.read_us(); // 19.6us
   encoder.update_state();
+
+  dt = last_sensor_data.time - last_time; // timing
+  int32_t current_position = encoder.get_cal_state();
+  /*
   last_sensor_data.position = encoder.get_cal_state(); // 393us
   last_sensor_data.velocity = (
         TICK_US_TO_RAD_S_FIXP*(last_sensor_data.position - last_position)) /
@@ -102,18 +109,43 @@ void sense_control_thread(void const *arg) {
   last_sensor_data.current = current_sense.read_u16(); //85.6us
   last_sensor_data.temperature = temperature_sense.read_u16(); // 85.6us
   last_sensor_data.uc_temp = 0x1234;
+  */
+  
+  // Position: rad in 15.16 fixed point
+  if (current_position > 3<<12 && last_position < 1<<12) {
+    revolutions--;
+  } else if (current_position < 1<<12 && last_position > 3<<12) {
+    revolutions++;
+  }
+  int32_t last_position_absolute = position_absolute;
+  position_absolute = TICK_TO_RAD_FIXP * 
+        (revolutions*(1<<14) + current_position);
 
+  // Velocity: rad/s in 15.16 fixed point
+  velocity_unfiltered = 1000000*(((int64_t)position_absolute - 
+        (int64_t)last_position_absolute)/dt);
+  velocity_filtered = 
+        dt*velocity_unfiltered/(V_TAU + dt) + 
+        V_TAU*velocity_filtered/(V_TAU + dt);
+
+  // Add data to struct
+  last_sensor_data.position = position_absolute;
+  last_sensor_data.velocity = velocity_filtered;
+  last_sensor_data.current = current_sense.read_u16();
+  last_sensor_data.temperature = temperature_sense.read_u16();
+  last_sensor_data.uc_temp = 0x1234;
 
   // TODO: Calculate and apply control
+  int32_t command = 0;
   switch (control_mode) {
     case 0:
-      enable.write(1);
+      command = 0;
       integrator = 0;
       break;
 
     case 1:
       // TODO: Current control
-      enable.write(1);
+      command = 0;
       integrator = 0;
       break;
 
@@ -132,17 +164,6 @@ void sense_control_thread(void const *arg) {
       */
       target_position = last_command_data.position_setpoint;
 
-      dt = last_sensor_data.time - last_time; // timing
-      
-      // Position: rad in 15.16 fixed point
-      if (last_sensor_data.position > 3<<12 && last_position < 1<<12) {
-        revolutions--;
-      } else if (last_sensor_data.position < 1<<12 && last_position > 3<<12) {
-        revolutions++;
-      }
-      last_position_absolute = position_absolute;
-      position_absolute = TICK_TO_RAD_FIXP * 
-            (revolutions*(1<<14) + last_sensor_data.position);
       int32_t position_error = position_absolute - target_position;
 
       // Integrator: rad*s in 15.16 fixed point
@@ -153,27 +174,26 @@ void sense_control_thread(void const *arg) {
         integrator = -INTEGRATOR_MAX;
       }
 
-      // Velocity: rad/s in 15.16 fixed point
-      velocity_unfiltered = 1000000*(((int64_t)position_absolute - 
-            (int64_t)last_position_absolute)/dt);
-      velocity_filtered = 
-            dt*velocity_unfiltered/(V_TAU + dt) + 
-            V_TAU*velocity_filtered/(V_TAU + dt);
-
       // Command
-      int32_t command = (-KP*(int64_t)position_error)/(1<<16) + 
+      command = (-KP*(int64_t)position_error)/(1<<16) + 
             (-KD*((int64_t)velocity_filtered-(int64_t)target_velocity))/(1<<16) + 
             (-KI*(int64_t)integrator)/(1<<16);
 
-      float command_magnitude = fabs(static_cast<float>(command)/(1<<16));
-      command_magnitude = command_magnitude > 0.5 ? 0.5 : command_magnitude;
-      command_magnitude = 1-command_magnitude;
-      enable.write(command_magnitude);
-      direction.write(command > 0);
-
       break;
   }
+
+  if (position_absolute > HIGH_STOP) { // high limit stop
+      command = command > 0.0 ? 0.0 : command;
+  } else if (position_absolute < LOW_STOP) { // low limit stop
+      command = command < 0.0 ? 0.0 : command;
+  }
+  float command_magnitude = fabs(static_cast<float>(command)/(1<<16));
+  command_magnitude = command_magnitude > COMMAND_LIMIT 
+      ? COMMAND_LIMIT : command_magnitude; // limit maximum duty cycle
+  enable.write(1-command_magnitude);
+  direction.write(command > 0);
   // end Calculate and apply control (JY)
+
 
   // This puts the packet in the outgoing queue if there is space
   PacketParser* parser = (PacketParser*)(arg);
