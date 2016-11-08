@@ -3,11 +3,13 @@
 Encoder::Encoder(PinName mosi, PinName miso, PinName sck, PinName cs) :
   m_spi_(mosi, miso, sck), csl_(cs) {
 
-  set_offset(2134); // est. 9/13/2016
   csl_=1;
   m_spi_.format(8, 1);
   m_spi_.frequency(1000000);
-  wait(0.05);
+  wait(0.01);
+
+  set_offset(2134); // est. 9/13/2016
+  csl_=1;
 
   write_spi(0x0019, 0); //SETTINGS2
   write_spi(0x001D, 0);

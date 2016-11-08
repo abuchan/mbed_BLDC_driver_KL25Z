@@ -47,7 +47,32 @@ command_data_t last_command_data;
 
 // Converts ticks/us to rad/s in 16.16 fixed point. Divide resulting number by
 // 2^16 for final result
-#define TICK_US_TO_RAD_S_FIXP 78640346
+#define TICK_US_TO_RAD_S_FIXP 25142741 //78640346
+
+
+// ticks to radians in 8.24 fixed point: multiply by 2^24 for scaled value
+// 2*pi/(2^14)*2^24 = 6433.9818
+// this approximation accumulates one tick of error per 21 revolutions
+// 2*pi/(2^14)*2^16 = 25.1327
+// this approximation accumulates 0.5% error
+#define TICK_TO_RAD_FIXP 25 //6434
+int32_t revolutions = 0;
+int32_t integrator = 0;
+int32_t velocity_filtered = 0;
+int32_t last_position_absolute = 0;
+
+uint8_t control_mode = 0;
+
+int32_t position_absolute;
+int32_t velocity_unfiltered;
+uint32_t dt;
+
+// 16.16 fixed point: divide by 2^16 for scaled value
+#define V_TAU 20000 // velocity LP time constant in us
+#define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
+#define KP 3*(1<<16)/10 // fraction of command per rad
+#define KI 1*(1<<16)/100 // fraction of command per rad*s
+#define KD 1*(1<<16)/50 // fraction of command per rad/s
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -78,7 +103,77 @@ void sense_control_thread(void const *arg) {
   last_sensor_data.temperature = temperature_sense.read_u16(); // 85.6us
   last_sensor_data.uc_temp = 0x1234;
 
+
   // TODO: Calculate and apply control
+  switch (control_mode) {
+    case 0:
+      enable.write(1);
+      integrator = 0;
+      break;
+
+    case 1:
+      // TODO: Current control
+      enable.write(1);
+      integrator = 0;
+      break;
+
+    case 2:
+      int32_t target_position = 0*(1<<16); // rad in 16.16 fixed point
+      int32_t target_velocity = 0*(1<<16); // rad/s in 16.16 fixed point
+
+      /*
+      if (last_sensor_data.time % 10000000 < 5000000) {
+        target_position = 30*(1<<16);//1.5*(1<<16);
+      }
+      */
+      /*
+      target_position = 6*(int64_t)last_sensor_data.time*(1<<16)/1000000;
+      target_velocity = 6*(1<<16);
+      */
+      target_position = last_command_data.position_setpoint;
+
+      dt = last_sensor_data.time - last_time; // timing
+      
+      // Position: rad in 15.16 fixed point
+      if (last_sensor_data.position > 3<<12 && last_position < 1<<12) {
+        revolutions--;
+      } else if (last_sensor_data.position < 1<<12 && last_position > 3<<12) {
+        revolutions++;
+      }
+      last_position_absolute = position_absolute;
+      position_absolute = TICK_TO_RAD_FIXP * 
+            (revolutions*(1<<14) + last_sensor_data.position);
+      int32_t position_error = position_absolute - target_position;
+
+      // Integrator: rad*s in 15.16 fixed point
+      integrator += (int32_t)((int64_t)position_error*(uint64_t)dt/1000000);
+      if (integrator > INTEGRATOR_MAX) { // integrator saturation to prevent windup
+        integrator = INTEGRATOR_MAX;
+      } else if (integrator < -INTEGRATOR_MAX) {
+        integrator = -INTEGRATOR_MAX;
+      }
+
+      // Velocity: rad/s in 15.16 fixed point
+      velocity_unfiltered = 1000000*(((int64_t)position_absolute - 
+            (int64_t)last_position_absolute)/dt);
+      velocity_filtered = 
+            dt*velocity_unfiltered/(V_TAU + dt) + 
+            V_TAU*velocity_filtered/(V_TAU + dt);
+
+      // Command
+      int32_t command = (-KP*(int64_t)position_error)/(1<<16) + 
+            (-KD*((int64_t)velocity_filtered-(int64_t)target_velocity))/(1<<16) + 
+            (-KI*(int64_t)integrator)/(1<<16);
+
+      float command_magnitude = fabs(static_cast<float>(command)/(1<<16));
+      command_magnitude = command_magnitude > 0.5 ? 0.5 : command_magnitude;
+      command_magnitude = 1-command_magnitude;
+      enable.write(command_magnitude);
+      direction.write(command > 0);
+
+      break;
+  }
+  // end Calculate and apply control (JY)
 
   // This puts the packet in the outgoing queue if there is space
   PacketParser* parser = (PacketParser*)(arg);
@@ -95,7 +190,7 @@ int main() {
   direction.write(0);
   brake.write(1);
 
-  encoder.set_offset(2160);
+  control_mode = 0; // by default, disable the motor
 
   led_1 = 1;
 
@@ -131,6 +226,8 @@ int main() {
           memcpy(&last_command_data,recv_pkt->packet.data_crc,
               sizeof(command_data_t));
           // TODO: state machine for control modes
+          control_mode = recv_pkt->packet.header.flags;
+          // end control modes (JY)
           break;
 
         default:
