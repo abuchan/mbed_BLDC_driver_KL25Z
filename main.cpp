@@ -67,16 +67,16 @@ int32_t position_absolute;
 int32_t velocity_unfiltered;
 uint32_t dt;
 
-#define COMMAND_LIMIT 0.5 // maximum duty cycle: [0,1] (1 is full on)
+#define COMMAND_LIMIT 1.0 // maximum duty cycle: [0,1] (1 is full on)
 #define V_TAU 20000 // velocity LP time constant in us
 
 // 16.16 fixed point: divide by 2^16 for scaled value
 #define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
-#define KP 3*(1<<16)/10 // fraction of command per rad
+#define KP 5*(1<<16)/10 // fraction of command per rad
 #define KI 1*(1<<16)/100 // fraction of command per rad*s
-#define KD 1*(1<<16)/50 // fraction of command per rad/s
+#define KD 1*(1<<16)/1000 // fraction of command per rad/s
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -207,7 +207,7 @@ void sense_control_thread(void const *arg) {
 
 int main() {  
   enable.period_us(50);
-  enable.write(0.9f);
+  enable.write(1.0f);
   direction.write(0);
   brake.write(1);
 

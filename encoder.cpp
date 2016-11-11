@@ -9,7 +9,7 @@ Encoder::Encoder(PinName mosi, PinName miso, PinName sck, PinName cs) :
   wait(0.01);
 
   //set_offset(2134); // est. 9/13/2016
-	set_offset(9906); // Calibrated offset for jumper = 8086+1820
+		set_offset(9300); // Calibrated offset for jumper = 8086+1820. 7145,8541-same, 8086:backward, 9451:works, 9300: smooth
   csl_=1;
 
   write_spi(0x0019, 0); //SETTINGS2
@@ -69,6 +69,8 @@ uint16_t Encoder::bit_parity(uint16_t value) {
 
 void Encoder::update_state(){
     pos_ = ams_read();
+		volatile unsigned int test;
+		test = pos_;
     // TODO: calibrate state
 }
 
