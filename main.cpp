@@ -75,8 +75,8 @@ uint32_t dt;
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
 #define KP 5*(1<<16)/10 // fraction of command per rad
-#define KI 1*(1<<16)/100 // fraction of command per rad*s
-#define KD 1*(1<<16)/1000 // fraction of command per rad/s
+#define KI 0*(1<<16)/100 // fraction of command per rad*s
+#define KD 0*(1<<16)/1000 // fraction of command per rad/s
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -132,7 +132,7 @@ void sense_control_thread(void const *arg) {
   // Add data to struct
   last_sensor_data.position = position_absolute;
   last_sensor_data.velocity = velocity_filtered;
-  last_sensor_data.current = current_sense.read_u16();
+  //last_sensor_data.current = current_sense.read_u16(); //TODO: add real current sensing
   last_sensor_data.temperature = temperature_sense.read_u16();
   last_sensor_data.uc_temp = 0x1234;
 
@@ -195,6 +195,8 @@ void sense_control_thread(void const *arg) {
   direction.write(command > 0);
   // end Calculate and apply control (JY)
 
+  last_sensor_data.current = (command >= (1<<16)) ? (1<<15)-1 : 
+		(command <= -(1<<16)) ? -(1<<15) : command>>1; //TODO: add real current sensing
 
   // This puts the packet in the outgoing queue if there is space
   PacketParser* parser = (PacketParser*)(arg);
