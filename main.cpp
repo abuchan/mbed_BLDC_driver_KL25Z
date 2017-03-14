@@ -138,22 +138,21 @@ void sense_control_thread(void const *arg) {
 
   // TODO: Calculate and apply control
   int32_t command = 0;
+  int32_t target_position = 0*(1<<16); // rad in 16.16 fixed point
+  int32_t target_velocity = 0*(1<<16); // rad/s in 16.16 fixed point
   switch (control_mode) {
-    case 0:
+    case 0: // Disabled
       command = 0;
       integrator = 0;
       break;
 
-    case 1:
+    case 1: // Current control
       // TODO: Current control
       command = 0;
       integrator = 0;
       break;
 
-    case 2:
-      int32_t target_position = 0*(1<<16); // rad in 16.16 fixed point
-      int32_t target_velocity = 0*(1<<16); // rad/s in 16.16 fixed point
-
+    case 2: // Position control
       /*
       if (last_sensor_data.time % 10000000 < 5000000) {
         target_position = 30*(1<<16);//1.5*(1<<16);
@@ -179,8 +178,22 @@ void sense_control_thread(void const *arg) {
       command = (-KP*(int64_t)position_error)/(1<<16) + 
             (-KD*((int64_t)velocity_filtered-(int64_t)target_velocity))/(1<<16) + 
             (-KI*(int64_t)integrator)/(1<<16);
-
       break;
+
+    case 3: // Voltage control
+      command = last_command_data.position_setpoint/(1<<15);
+      integrator = 0;
+      break;
+
+    case 16: // Zero position calibration
+      set_offset(last_command_data.current_setpoint);
+      control_mode = 0;
+      break;
+
+    default: // Disabled
+      command = 0;
+      integrator = 0;
+
   }
 
   if (position_absolute > HIGH_STOP) { // high limit stop
