@@ -65,7 +65,7 @@ uint8_t control_mode = 0;
 
 int32_t position_absolute;
 int32_t velocity_unfiltered;
-uint32_t dt;
+int32_t dt;
 
 #define COMMAND_LIMIT 1.0 // maximum duty cycle: [0,1] (1 is full on)
 #define V_TAU 20000 // velocity LP time constant in us
@@ -126,8 +126,8 @@ void sense_control_thread(void const *arg) {
   velocity_unfiltered = 1000000*(((int64_t)position_absolute - 
         (int64_t)last_position_absolute)/dt);
   velocity_filtered = 
-        dt*velocity_unfiltered/(V_TAU + dt) + 
-        V_TAU*velocity_filtered/(V_TAU + dt);
+        (int64_t)dt*(int64_t)velocity_unfiltered/(V_TAU + (int64_t)dt) + 
+        V_TAU*(int64_t)velocity_filtered/(V_TAU + (int64_t)dt);
 
   // Add data to struct
   last_sensor_data.position = position_absolute;
@@ -140,6 +140,7 @@ void sense_control_thread(void const *arg) {
   int32_t command = 0;
   int32_t target_position = 0*(1<<16); // rad in 16.16 fixed point
   int32_t target_velocity = 0*(1<<16); // rad/s in 16.16 fixed point
+	int32_t position_error = 0; //
   switch (control_mode) {
     case 0: // Disabled
       command = 0;
@@ -164,7 +165,7 @@ void sense_control_thread(void const *arg) {
       */
       target_position = last_command_data.position_setpoint;
 
-      int32_t position_error = position_absolute - target_position;
+      position_error = position_absolute - target_position;
 
       // Integrator: rad*s in 15.16 fixed point
       integrator += (int32_t)((int64_t)position_error*(uint64_t)dt/1000000);
@@ -181,12 +182,12 @@ void sense_control_thread(void const *arg) {
       break;
 
     case 3: // Voltage control
-      command = last_command_data.position_setpoint/(1<<15);
+      command = last_command_data.position_setpoint;
       integrator = 0;
       break;
 
     case 16: // Zero position calibration
-      set_offset(last_command_data.current_setpoint);
+      encoder.set_offset(last_command_data.current_setpoint);
       control_mode = 0;
       break;
 
@@ -196,11 +197,15 @@ void sense_control_thread(void const *arg) {
 
   }
 
-  if (position_absolute > HIGH_STOP) { // high limit stop
-      command = command > 0.0 ? 0.0 : command;
-  } else if (position_absolute < LOW_STOP) { // low limit stop
-      command = command < 0.0 ? 0.0 : command;
-  }
+	// End stops
+	if (control_mode != 3) {
+		if (position_absolute > HIGH_STOP) { // high limit stop
+				command = command > 0.0 ? 0.0 : command;
+		} else if (position_absolute < LOW_STOP) { // low limit stop
+				command = command < 0.0 ? 0.0 : command;
+		}
+	}
+	
   float command_magnitude = fabs(static_cast<float>(command)/(1<<16));
   command_magnitude = command_magnitude > COMMAND_LIMIT 
       ? COMMAND_LIMIT : command_magnitude; // limit maximum duty cycle
