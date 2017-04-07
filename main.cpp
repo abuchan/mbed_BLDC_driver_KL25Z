@@ -68,15 +68,15 @@ int32_t velocity_unfiltered;
 int32_t dt;
 
 #define COMMAND_LIMIT 1.0 // maximum duty cycle: [0,1] (1 is full on)
-#define V_TAU 20000 // velocity LP time constant in us
+#define V_TAU 3000 // velocity LP time constant in us
 
 // 16.16 fixed point: divide by 2^16 for scaled value
 #define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
-#define KP 5*(1<<16)/10 // fraction of command per rad
+#define KP 2*(1<<16)/10 // fraction of command per rad
 #define KI 0*(1<<16)/100 // fraction of command per rad*s
-#define KD 0*(1<<16)/1000 // fraction of command per rad/s
+#define KD 1*(1<<16)/1000 // fraction of command per rad/s
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -136,11 +136,19 @@ void sense_control_thread(void const *arg) {
   last_sensor_data.temperature = temperature_sense.read_u16();
   last_sensor_data.uc_temp = 0x1234;
 
-  // TODO: Calculate and apply control
+  // Calculate and apply control
   int32_t command = 0;
-  int32_t target_position = 0*(1<<16); // rad in 16.16 fixed point
-  int32_t target_velocity = 0*(1<<16); // rad/s in 16.16 fixed point
+  int32_t target_position = 0*(1<<16); // rad in 15.16 fixed point
+  int32_t target_velocity = 0*(1<<16); // rad/s in 15.16 fixed point
 	int32_t position_error = 0; //
+	#define MOT_KV 173 // (rad/s)/V from 1650 RPM/V
+	#define MOT_R 0.4 // Ohms
+	#define I_LIM 15.0 // Amps
+	#define V_SUP 12.6 // Volts
+	float v1 = I_LIM*MOT_R;
+	float bemf = (((float)velocity_filtered)/(1<<16))/MOT_KV;
+	float vMax = (v1 + bemf)/V_SUP;
+	float vMin = (-v1 + bemf)/V_SUP;
   switch (control_mode) {
     case 0: // Disabled
       command = 0;
@@ -206,17 +214,21 @@ void sense_control_thread(void const *arg) {
 		}
 	}
 	
-  float command_magnitude = fabs(static_cast<float>(command)/(1<<16));
+	float command_float = static_cast<float>(command)/(1<<16);
+	command_float = command_float > vMax
+			? vMax : (command_float < vMin 
+			? vMin : command_float); // limit current hack
+  float command_magnitude = fabs(command_float);
   command_magnitude = command_magnitude > COMMAND_LIMIT 
       ? COMMAND_LIMIT : command_magnitude; // limit maximum duty cycle
   enable.write(1-command_magnitude);
   direction.write(command > 0);
   // end Calculate and apply control (JY)
 
-  last_sensor_data.current = (command >= (1<<16)) ? (1<<15)-1 : 
-		(command <= -(1<<16)) ? -(1<<15) : command>>1; //TODO: add real current sensing
+  last_sensor_data.current = (int16_t)(command_magnitude*(1<<15)*(2*(command>0)-1)); 
+	  //TODO: add real current sensing
 
-  // This puts the packet in the outgoing queue if there is space
+  // This puts the packet in the outgoing queue if0 there is space
   PacketParser* parser = (PacketParser*)(arg);
   packet_union_t* sensor_pkt = parser->get_send_packet();
   if (sensor_pkt != NULL) {
