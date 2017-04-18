@@ -45,14 +45,7 @@ command_data_t last_command_data;
 // 40MHz
 #define SERIAL_BAUDRATE 873813
 
-// Converts ticks/us to rad/s in 16.16 fixed point. Divide resulting number by
-// 2^16 for final result
-#define TICK_US_TO_RAD_S_FIXP 25142741 //78640346
-
-
-// ticks to radians in 8.24 fixed point: multiply by 2^24 for scaled value
-// 2*pi/(2^14)*2^24 = 6433.9818
-// this approximation accumulates one tick of error per 21 revolutions
+// ticks to radians in 15.16 fixed point: multiply by 2^16 for scaled value
 // 2*pi/(2^14)*2^16 = 25.1327
 // this approximation accumulates 0.5% error
 #define TICK_TO_RAD_FIXP 25 //6434
@@ -70,13 +63,36 @@ int32_t dt;
 #define COMMAND_LIMIT 1.0 // maximum duty cycle: [0,1] (1 is full on)
 #define V_TAU 3000 // velocity LP time constant in us
 
-// 16.16 fixed point: divide by 2^16 for scaled value
+// 15.16 fixed point: divide by 2^16 for scaled value
 #define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
 #define KP 5*(1<<16)/10 // fraction of command per rad
 #define KI 0*(1<<16)/100 // fraction of command per rad*s
 #define KD 0*(1<<16)/1000 // fraction of command per rad/s
+
+// MOTOR PARAMETERS
+// Custom wound motor
+//*
+#define MOT_KV 86 // (rad/s)/V from 825 RPM/V
+#define MOT_R 1.6  // Ohms
+#define I_LIM 15.0 // Amps
+#define V_SUP 12.6 // Volts
+//*/
+// Reterminated stock motor
+/*
+#define MOT_KV 86 // (rad/s)/V from 825 RPM/V
+#define MOT_R 2.5  // Ohms
+#define I_LIM 15.0 // Amps
+#define V_SUP 12.6 // Volts
+*/
+// Stock motor
+/*
+#define MOT_KV 173 // (rad/s)/V from 1650 RPM/V
+#define MOT_R 0.6  // Ohms
+#define I_LIM 15.0 // Amps
+#define V_SUP 12.6 // Volts
+*/
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -102,15 +118,6 @@ void sense_control_thread(void const *arg) {
 
   dt = last_sensor_data.time - last_time; // timing
   current_position = encoder.get_cal_state();
-  /*
-  last_sensor_data.position = encoder.get_cal_state(); // 393us
-  last_sensor_data.velocity = (
-        TICK_US_TO_RAD_S_FIXP*(last_sensor_data.position - last_position)) /
-            (last_sensor_data.time-last_time); // 8.1us
-  last_sensor_data.current = current_sense.read_u16(); //85.6us
-  last_sensor_data.temperature = temperature_sense.read_u16(); // 85.6us
-  last_sensor_data.uc_temp = 0x1234;
-  */
   
   // Position: rad in 15.16 fixed point
   if (current_position > 3<<12 && last_position < 1<<12) {
@@ -140,15 +147,8 @@ void sense_control_thread(void const *arg) {
   int32_t command = 0; // command in 15.16 fixed point
   int32_t target_position = 0*(1<<16); // rad in 15.16 fixed point
   int32_t target_velocity = 0*(1<<16); // rad/s in 15.16 fixed point
-	int32_t position_error = 0; //
-	#define MOT_KV 173 // (rad/s)/V from 1650 RPM/V
-	#define MOT_R 1.6 //0.4 // Ohms
-	#define I_LIM 15.0 // Amps
-	#define V_SUP 12.6 // Volts
-	float v1 = I_LIM*MOT_R;
-	float bemf = (((float)velocity_filtered)/(1<<16))/MOT_KV;
-	float vMax = (v1 + bemf)/V_SUP;
-	float vMin = (-v1 + bemf)/V_SUP;
+  int32_t position_error = 0; // rad in 15.16 fixed point
+
   switch (control_mode) {
     case 0: // Disabled
       command = 0;
@@ -163,11 +163,13 @@ void sense_control_thread(void const *arg) {
 
     case 2: // Position control
       /*
+      // debugging toggle
       if (last_sensor_data.time % 10000000 < 5000000) {
         target_position = 30*(1<<16);//1.5*(1<<16);
       }
       */
       /*
+      // debugging sping slowly
       target_position = 6*(int64_t)last_sensor_data.time*(1<<16)/1000000;
       target_velocity = 6*(1<<16);
       */
@@ -205,19 +207,26 @@ void sense_control_thread(void const *arg) {
 
   }
 
-	// End stops
-	if (control_mode != 3) {
-		if (position_absolute > HIGH_STOP) { // high limit stop
-				command = command > 0.0 ? 0.0 : command;
-		} else if (position_absolute < LOW_STOP) { // low limit stop
-				command = command < 0.0 ? 0.0 : command;
-		}
-	}
-	
-	float command_float = static_cast<float>(command)/(1<<16);
-	command_float = command_float > vMax
-			? vMax : (command_float < vMin 
-			? vMin : command_float); // limit current hack
+  // End stops
+  if (control_mode != 3) {
+    if (position_absolute > HIGH_STOP) { // high limit stop
+        command = command > 0.0 ? 0.0 : command;
+    } else if (position_absolute < LOW_STOP) { // low limit stop
+        command = command < 0.0 ? 0.0 : command;
+    }
+  }
+
+  // Current limit (hack)
+  float v1 = I_LIM*MOT_R;
+  float bemf = (((float)velocity_filtered)/(1<<16))/MOT_KV;
+  float vMax = (v1 + bemf)/V_SUP;
+  float vMin = (-v1 + bemf)/V_SUP;
+  float command_float = static_cast<float>(command)/(1<<16);
+  command_float = command_float > vMax
+      ? vMax : (command_float < vMin
+      ? vMin : command_float);
+
+  // Command saturation
   float command_magnitude = fabs(command_float);
   command_magnitude = command_magnitude > COMMAND_LIMIT 
       ? COMMAND_LIMIT : command_magnitude; // limit maximum duty cycle

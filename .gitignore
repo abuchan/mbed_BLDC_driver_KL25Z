@@ -18,3 +18,5 @@
 /mbed_BLDC_driver_KL25Z.uvguix.yim
 /mbed_BLDC_driver_KL25Z.uvoptx
 /mbed_BLDC_driver_KL25Z.uvprojx
+
+*.DS_Store
