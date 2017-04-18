@@ -74,9 +74,9 @@ int32_t dt;
 #define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
-#define KP 2*(1<<16)/10 // fraction of command per rad
+#define KP 5*(1<<16)/10 // fraction of command per rad
 #define KI 0*(1<<16)/100 // fraction of command per rad*s
-#define KD 1*(1<<16)/1000 // fraction of command per rad/s
+#define KD 0*(1<<16)/1000 // fraction of command per rad/s
 
 // Fills a packet with the most recent acquired sensor data
 void get_last_sensor_data(packet_t* pkt, uint8_t flags) {
@@ -137,12 +137,12 @@ void sense_control_thread(void const *arg) {
   last_sensor_data.uc_temp = 0x1234;
 
   // Calculate and apply control
-  int32_t command = 0;
+  int32_t command = 0; // command in 15.16 fixed point
   int32_t target_position = 0*(1<<16); // rad in 15.16 fixed point
   int32_t target_velocity = 0*(1<<16); // rad/s in 15.16 fixed point
 	int32_t position_error = 0; //
 	#define MOT_KV 173 // (rad/s)/V from 1650 RPM/V
-	#define MOT_R 0.4 // Ohms
+	#define MOT_R 1.6 //0.4 // Ohms
 	#define I_LIM 15.0 // Amps
 	#define V_SUP 12.6 // Volts
 	float v1 = I_LIM*MOT_R;
