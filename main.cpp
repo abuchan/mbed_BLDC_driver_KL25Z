@@ -67,15 +67,16 @@ int32_t dt;
 #define LOW_STOP -2*2*314*(1<<16)/100 // motor position limit
 #define HIGH_STOP 17*2*314*(1<<16)/100 // motor high position limit
 #define INTEGRATOR_MAX 1*(1<<16) // integrator saturation in rad*s
-#define KP 5*(1<<16)/10 // fraction of command per rad
-#define KI 0*(1<<16)/100 // fraction of command per rad*s
-#define KD 0*(1<<16)/1000 // fraction of command per rad/s
+
+int32_t kp = (5<<16)/10; // fraction of command per rad
+int32_t ki = (0<<16)/100; // fraction of command per rad*s
+int32_t kd = (1<<16)/1000; // fraction of command per rad/s
 
 // MOTOR PARAMETERS
 // Custom wound motor
 //*
 #define MOT_KV 86 // (rad/s)/V from 825 RPM/V
-#define MOT_R 1.6  // Ohms
+#define MOT_R 2.4  // Ohms
 #define I_LIM 15.0 // Amps
 #define V_SUP 12.6 // Volts
 //*/
@@ -184,11 +185,14 @@ void sense_control_thread(void const *arg) {
       } else if (integrator < -INTEGRATOR_MAX) {
         integrator = -INTEGRATOR_MAX;
       }
+			
+      kp = (int32_t)((uint16_t)(last_command_data.current_setpoint >> 16));
+      kd = (int32_t)((uint16_t)last_command_data.current_setpoint);
 
       // Command
-      command = (-KP*(int64_t)position_error)/(1<<16) + 
-            (-KD*((int64_t)velocity_filtered-(int64_t)target_velocity))/(1<<16) + 
-            (-KI*(int64_t)integrator)/(1<<16);
+      command = (-kp*(int64_t)position_error)/(1<<16) + 
+            (-kd*((int64_t)velocity_filtered-(int64_t)target_velocity))/(1<<16) + 
+            (-ki*(int64_t)integrator)/(1<<16);
       break;
 
     case 3: // Voltage control
