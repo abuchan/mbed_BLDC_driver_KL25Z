@@ -60,7 +60,7 @@ int32_t position_absolute;
 int32_t velocity_unfiltered;
 int32_t dt;
 
-#define COMMAND_LIMIT 1.0 // maximum duty cycle: [0,1] (1 is full on)
+float command_limit = 1.0; // 0.75; // maximum duty cycle: [0,1] (1 is full on)
 #define V_TAU 3000 // velocity LP time constant in us
 
 // 15.16 fixed point: divide by 2^16 for scaled value
@@ -142,6 +142,7 @@ void sense_control_thread(void const *arg) {
   last_sensor_data.velocity = velocity_filtered;
   //last_sensor_data.current = current_sense.read_u16(); //TODO: add real current sensing
   last_sensor_data.temperature = temperature_sense.read_u16();
+  last_sensor_data.voltage = voltage_sense.read_u16();
   last_sensor_data.uc_temp = 0x1234;
 
   // Calculate and apply control
@@ -204,6 +205,10 @@ void sense_control_thread(void const *arg) {
       encoder.set_offset(last_command_data.current_setpoint);
       control_mode = 0;
       break;
+		
+    case 17: // Set PWM limit
+      command_limit = (float)last_command_data.current_setpoint/65536;
+      break;
 
     default: // Disabled
       command = 0;
@@ -232,13 +237,13 @@ void sense_control_thread(void const *arg) {
 
   // Command saturation
   float command_magnitude = fabs(command_float);
-  command_magnitude = command_magnitude > COMMAND_LIMIT 
-      ? COMMAND_LIMIT : command_magnitude; // limit maximum duty cycle
+  command_magnitude = command_magnitude > command_limit
+      ? command_limit : command_magnitude; // limit maximum duty cycle
   enable.write(1-command_magnitude);
   direction.write(command > 0);
   // end Calculate and apply control (JY)
 
-  last_sensor_data.current = (int16_t)(command_magnitude*(1<<15)*(2*(command>0)-1)); 
+  last_sensor_data.current = (int16_t)(command_magnitude*((1<<15)-1)*(2*(command>0)-1)); 
 	  //TODO: add real current sensing
 
   // This puts the packet in the outgoing queue if0 there is space
